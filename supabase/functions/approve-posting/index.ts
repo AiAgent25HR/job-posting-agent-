@@ -211,9 +211,9 @@ function processDepartments(rawCategories: string): string[] {
 async function getEmbedding(text: string): Promise<number[]> {
   console.log('🔄 Calling HuggingFace embedding API...');
   
-  // Use 'sentences' parameter for sentence-transformers models
+  // Use the standard Inference API endpoint with feature-extraction task
   const response = await fetch(
-    `https://router.huggingface.co/hf-inference/models/${EMBEDDING_MODEL}`,
+    `https://api-inference.huggingface.co/pipeline/feature-extraction/${EMBEDDING_MODEL}`,
     {
       method: 'POST',
       headers: {
@@ -221,9 +221,9 @@ async function getEmbedding(text: string): Promise<number[]> {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ 
-        inputs: {
-          source_sentence: text,
-          sentences: [text]
+        inputs: text,
+        options: {
+          wait_for_model: true
         }
       }),
     }
@@ -236,26 +236,49 @@ async function getEmbedding(text: string): Promise<number[]> {
   }
 
   const result = await response.json();
-  console.log('✅ HuggingFace response:', JSON.stringify(result).slice(0, 200));
+  console.log('✅ HuggingFace response type:', typeof result, 'isArray:', Array.isArray(result));
   
-  // For sentence-transformers, the response should be a direct embedding array
-  if (Array.isArray(result) && typeof result[0] === 'number') {
-    console.log('✅ Embedding dimension:', result.length);
-    return result;
-  }
-  
-  // Handle nested array structures
-  if (Array.isArray(result) && Array.isArray(result[0])) {
-    // If it's a 2D array, take the first embedding
-    const embedding = result[0];
-    if (typeof embedding[0] === 'number') {
-      console.log('✅ Embedding dimension:', embedding.length);
-      return embedding;
+  // Handle the response structure - typically [[token_embeddings]]
+  if (Array.isArray(result)) {
+    // If result is [[[embeddings]]] or [[embeddings]]
+    if (Array.isArray(result[0])) {
+      if (Array.isArray(result[0][0])) {
+        // Shape: [[[token_embs]]] - take first batch, mean pool tokens
+        const tokenEmbeddings = result[0];
+        return meanPool(tokenEmbeddings);
+      } else if (typeof result[0][0] === 'number') {
+        // Shape: [[embedding]] - take first embedding
+        console.log('✅ Embedding dimension:', result[0].length);
+        return result[0];
+      }
+    } else if (typeof result[0] === 'number') {
+      // Shape: [embedding] - direct embedding
+      console.log('✅ Embedding dimension:', result.length);
+      return result;
     }
   }
   
   console.error('Unexpected response structure:', JSON.stringify(result).slice(0, 200));
   throw new Error('Unexpected embedding response format');
+}
+
+// Helper function for mean pooling
+function meanPool(tokenEmbeddings: number[][]): number[] {
+  const embeddingDim = tokenEmbeddings[0].length;
+  const meanEmbedding = new Array(embeddingDim).fill(0);
+  
+  for (const tokenEmb of tokenEmbeddings) {
+    for (let i = 0; i < embeddingDim; i++) {
+      meanEmbedding[i] += tokenEmb[i];
+    }
+  }
+  
+  for (let i = 0; i < embeddingDim; i++) {
+    meanEmbedding[i] /= tokenEmbeddings.length;
+  }
+  
+  console.log('✅ Mean pooled embedding dimension:', meanEmbedding.length);
+  return meanEmbedding;
 }
 
 // Query Qdrant employees collection for similar employees
