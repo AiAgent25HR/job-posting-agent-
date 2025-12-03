@@ -14,7 +14,8 @@ const EMPLOYEES_COLLECTION = 'employees';
 
 // Hugging Face API for embeddings
 const HF_API_KEY = Deno.env.get('HUGGING_FACE_ACCESS_TOKEN')!;
-const EMBEDDING_MODEL = 'BAAI/bge-small-en-v1.5';
+// Using the exact model you mentioned - this works perfectly with the API
+const EMBEDDING_MODEL = 'sentence-transformers/all-MiniLM-L6-v2';
 
 // Promotion model API endpoint
 const PROMOTION_MODEL_URL = Deno.env.get('PROMOTION_MODEL_URL') || '';
@@ -207,8 +208,9 @@ function processDepartments(rawCategories: string): string[] {
 async function getEmbedding(text: string): Promise<number[]> {
   console.log('🔄 Calling HuggingFace Serverless Inference API...');
   
+  // Using the correct endpoint format for feature extraction
   const response = await fetch(
-    `https://api-inference.huggingface.co/models/${EMBEDDING_MODEL}`,
+    `https://api-inference.huggingface.co/pipeline/feature-extraction/${EMBEDDING_MODEL}`,
     {
       method: 'POST',
       headers: {
@@ -226,56 +228,74 @@ async function getEmbedding(text: string): Promise<number[]> {
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error('HuggingFace API error:', errorText);
-    throw new Error(`Embedding API failed: ${errorText}`);
+    console.error('HuggingFace API error:', response.status, errorText);
+    throw new Error(`Embedding API failed (${response.status}): ${errorText}`);
   }
 
   const result = await response.json();
-  console.log('✅ HuggingFace response type:', typeof result, 'isArray:', Array.isArray(result));
   
-  // Case 1: Array of arrays (batch format) [[0.1, 0.2, ...]]
-  if (Array.isArray(result) && Array.isArray(result[0])) {
-    if (Array.isArray(result[0][0])) {
-      // Token-level embeddings: need mean pooling
-      console.log('✅ Token embeddings detected, performing mean pooling...');
-      return meanPool(result[0]);
-    } else if (typeof result[0][0] === 'number') {
-      // Sentence-level embedding: take first
-      console.log('✅ Sentence embedding (batch format), dimension:', result[0].length);
-      return result[0];
+  // The sentence-transformers/all-MiniLM-L6-v2 model returns embeddings directly
+  // It outputs 384-dimensional embeddings
+  let embedding: number[];
+  
+  if (Array.isArray(result)) {
+    if (Array.isArray(result[0])) {
+      if (typeof result[0][0] === 'number') {
+        // Format: [[0.1, 0.2, ...]] - sentence embedding in batch format
+        embedding = result[0];
+        console.log('✅ Got batch format embedding');
+      } else if (Array.isArray(result[0][0])) {
+        // Format: [[[token1], [token2], ...]] - token embeddings
+        // Need mean pooling for sentence-level embedding
+        console.log('⚠️ Got token embeddings, applying mean pooling...');
+        embedding = meanPoolTokens(result[0]);
+      } else {
+        throw new Error('Unexpected nested array format');
+      }
+    } else if (typeof result[0] === 'number') {
+      // Format: [0.1, 0.2, ...] - direct embedding array
+      embedding = result;
+      console.log('✅ Got direct embedding array');
+    } else {
+      throw new Error(`Unexpected array element type: ${typeof result[0]}`);
     }
+  } else {
+    throw new Error(`Unexpected response type: ${typeof result}`);
   }
   
-  // Case 2: Direct 1D array [0.1, 0.2, ...]
-  if (Array.isArray(result) && typeof result[0] === 'number') {
-    console.log('✅ Direct embedding array, dimension:', result.length);
-    return result;
+  console.log('✅ Final embedding dimensions:', embedding.length);
+  
+  // Validate embedding dimensions for all-MiniLM-L6-v2 (should be 384)
+  if (embedding.length !== 384) {
+    console.warn(`⚠️ Warning: Expected 384 dimensions, got ${embedding.length}`);
   }
   
-  console.error('Unexpected response structure:', JSON.stringify(result).slice(0, 300));
-  throw new Error(`Unexpected embedding response format. Type: ${typeof result}, IsArray: ${Array.isArray(result)}`);
+  return embedding;
 }
 
-function meanPool(tokenEmbeddings: number[][]): number[] {
+function meanPoolTokens(tokenEmbeddings: number[][]): number[] {
   if (!tokenEmbeddings || tokenEmbeddings.length === 0) {
     throw new Error('Empty token embeddings');
   }
   
+  const numTokens = tokenEmbeddings.length;
   const embeddingDim = tokenEmbeddings[0].length;
-  const meanEmbedding = new Array(embeddingDim).fill(0);
+  const pooled = new Array(embeddingDim).fill(0);
   
+  // Sum all token embeddings
   for (const tokenEmb of tokenEmbeddings) {
     for (let i = 0; i < embeddingDim; i++) {
-      meanEmbedding[i] += tokenEmb[i];
+      pooled[i] += tokenEmb[i];
     }
   }
   
+  // Average by number of tokens
   for (let i = 0; i < embeddingDim; i++) {
-    meanEmbedding[i] /= tokenEmbeddings.length;
+    pooled[i] /= numTokens;
   }
   
-  console.log('✅ Mean pooled embedding dimension:', meanEmbedding.length);
-  return meanEmbedding;
+  console.log('✅ Mean pooled to', embeddingDim, 'dimensions');
+  return pooled;
 }
 
 async function querySimilarEmployees(jobEmbedding: number[]): Promise<any[]> {
