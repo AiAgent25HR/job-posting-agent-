@@ -220,7 +220,7 @@ async function getEmbedding(text: string): Promise<number[]> {
         'Authorization': `Bearer ${HF_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ inputs: text }),
+      body: JSON.stringify({ sentences: [text] }),
     }
   );
 
