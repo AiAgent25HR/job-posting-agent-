@@ -52,7 +52,36 @@ const ReviewPosting = () => {
         },
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error("❌ Supabase function error:", error);
+        console.error("Error details:", JSON.stringify(error, null, 2));
+
+        // Try to extract error message from the error object
+        let errorMessage = "Failed to approve posting";
+        if (error.message) {
+          errorMessage = error.message;
+        } else if (error.context?.body) {
+          try {
+            const errorBody = JSON.parse(error.context.body);
+            errorMessage = errorBody.error || errorMessage;
+          } catch (e) {
+            // Ignore parse errors
+          }
+        }
+
+        toast.error(errorMessage);
+        throw error;
+      }
+
+      // Check if response contains an error
+      if (data?.error) {
+        console.error("❌ Function returned error:", data.error);
+        console.error("Error details:", data.details);
+        console.error("Error stack:", data.stack);
+        const errorMsg = data.error || "Unknown error occurred";
+        toast.error(`Error: ${errorMsg}`);
+        throw new Error(errorMsg);
+      }
 
       // Set similar employees if returned
       if (data?.similarEmployees) {
@@ -63,8 +92,10 @@ const ReviewPosting = () => {
         navigate("/postings");
       }
     } catch (error) {
-      console.error("Error approving posting:", error);
-      toast.error("Failed to approve posting. Please try again.");
+      console.error("❌ Error approving posting:", error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error("Full error object:", error);
+      toast.error(`Failed to approve posting: ${errorMessage}`);
     } finally {
       setIsApproving(false);
     }
@@ -172,7 +203,7 @@ const ReviewPosting = () => {
                           <p className="text-xs text-muted-foreground mt-1">{employee.department}</p>
                         </div>
                       </div>
-                      
+
                       <div className="space-y-3 mb-4 p-3 bg-muted/30 rounded-lg">
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-medium text-muted-foreground">Role Match Score</span>
@@ -181,15 +212,15 @@ const ReviewPosting = () => {
                           </Badge>
                         </div>
                         <div className="w-full bg-muted rounded-full h-1.5">
-                          <div 
-                            className="bg-primary h-1.5 rounded-full transition-all" 
+                          <div
+                            className="bg-primary h-1.5 rounded-full transition-all"
                             style={{ width: `${employee.similarity_score * 100}%` }}
                           />
                         </div>
-                        
+
                         <div className="flex items-center justify-between pt-2 border-t border-border/50">
                           <span className="text-xs font-medium text-muted-foreground">Promotion Readiness</span>
-                          <Badge 
+                          <Badge
                             variant={employee.promotion_probability > 0.7 ? "default" : "outline"}
                             className={employee.promotion_probability > 0.7 ? "bg-success font-semibold" : "font-semibold"}
                           >
@@ -197,14 +228,14 @@ const ReviewPosting = () => {
                           </Badge>
                         </div>
                         <div className="w-full bg-muted rounded-full h-1.5">
-                          <div 
-                            className="bg-success h-1.5 rounded-full transition-all" 
+                          <div
+                            className="bg-success h-1.5 rounded-full transition-all"
                             style={{ width: `${employee.promotion_probability * 100}%` }}
                           />
                         </div>
                       </div>
 
-                      <Button 
+                      <Button
                         onClick={() => handleContactEmployee(employee)}
                         className="w-full bg-primary hover:bg-primary/90"
                         size="sm"
