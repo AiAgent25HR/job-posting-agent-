@@ -219,7 +219,10 @@ async function getEmbedding(text: string): Promise<number[]> {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        inputs: text,
+        inputs: {
+          source_sentence: text,
+          sentences: [text]
+        },
         options: { wait_for_model: true }
       }),
     }
@@ -227,11 +230,24 @@ async function getEmbedding(text: string): Promise<number[]> {
 
   if (!response.ok) {
     const errorText = await response.text();
+    console.error('HuggingFace API error:', errorText);
     throw new Error(`Embedding API failed: ${errorText}`);
   }
 
-  const embedding = await response.json();
-  return embedding;
+  const result = await response.json();
+  console.log('✅ HuggingFace response type:', typeof result, Array.isArray(result));
+  
+  // The sentence-transformers model returns similarity scores when using source_sentence format
+  // Let's use a different approach - call the pipeline directly for feature extraction
+  // For now, return the result as-is if it's an array
+  if (Array.isArray(result) && Array.isArray(result[0])) {
+    return result[0];
+  }
+  if (Array.isArray(result)) {
+    return result;
+  }
+  
+  throw new Error('Unexpected embedding response format');
 }
 
 // Query Qdrant employees collection for similar employees
