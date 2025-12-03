@@ -211,7 +211,7 @@ function processDepartments(rawCategories: string): string[] {
 async function getEmbedding(text: string): Promise<number[]> {
   console.log('🔄 Calling HuggingFace embedding API...');
   
-  // Use the models endpoint with inputs as array
+  // Use 'sentences' parameter for sentence-transformers models
   const response = await fetch(
     `https://router.huggingface.co/hf-inference/models/${EMBEDDING_MODEL}`,
     {
@@ -220,7 +220,12 @@ async function getEmbedding(text: string): Promise<number[]> {
         'Authorization': `Bearer ${HF_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ inputs: [text] }),
+      body: JSON.stringify({ 
+        inputs: {
+          source_sentence: text,
+          sentences: [text]
+        }
+      }),
     }
   );
 
@@ -231,54 +236,22 @@ async function getEmbedding(text: string): Promise<number[]> {
   }
 
   const result = await response.json();
-  console.log('✅ HuggingFace response shape:', Array.isArray(result) ? result.length : typeof result);
+  console.log('✅ HuggingFace response:', JSON.stringify(result).slice(0, 200));
   
-  // The result is typically a 2D array [tokens][embedding_dim] or directly [embedding_dim]
-  // For sentence-transformers, we need to mean pool the token embeddings
-  if (Array.isArray(result) && Array.isArray(result[0]) && Array.isArray(result[0][0])) {
-    // Shape: [1][tokens][384] - mean pool across tokens
-    const tokenEmbeddings = result[0];
-    const embeddingDim = tokenEmbeddings[0].length;
-    const meanEmbedding = new Array(embeddingDim).fill(0);
-    
-    for (const tokenEmb of tokenEmbeddings) {
-      for (let i = 0; i < embeddingDim; i++) {
-        meanEmbedding[i] += tokenEmb[i];
-      }
-    }
-    
-    for (let i = 0; i < embeddingDim; i++) {
-      meanEmbedding[i] /= tokenEmbeddings.length;
-    }
-    
-    console.log('✅ Mean pooled embedding dimension:', meanEmbedding.length);
-    return meanEmbedding;
-  }
-  
-  if (Array.isArray(result) && Array.isArray(result[0]) && typeof result[0][0] === 'number') {
-    // Shape: [tokens][384] - mean pool across tokens
-    const tokenEmbeddings = result;
-    const embeddingDim = tokenEmbeddings[0].length;
-    const meanEmbedding = new Array(embeddingDim).fill(0);
-    
-    for (const tokenEmb of tokenEmbeddings) {
-      for (let i = 0; i < embeddingDim; i++) {
-        meanEmbedding[i] += tokenEmb[i];
-      }
-    }
-    
-    for (let i = 0; i < embeddingDim; i++) {
-      meanEmbedding[i] /= tokenEmbeddings.length;
-    }
-    
-    console.log('✅ Mean pooled embedding dimension:', meanEmbedding.length);
-    return meanEmbedding;
-  }
-  
+  // For sentence-transformers, the response should be a direct embedding array
   if (Array.isArray(result) && typeof result[0] === 'number') {
-    // Already a 1D embedding array
-    console.log('✅ Direct embedding dimension:', result.length);
+    console.log('✅ Embedding dimension:', result.length);
     return result;
+  }
+  
+  // Handle nested array structures
+  if (Array.isArray(result) && Array.isArray(result[0])) {
+    // If it's a 2D array, take the first embedding
+    const embedding = result[0];
+    if (typeof embedding[0] === 'number') {
+      console.log('✅ Embedding dimension:', embedding.length);
+      return embedding;
+    }
   }
   
   console.error('Unexpected response structure:', JSON.stringify(result).slice(0, 200));
