@@ -10,13 +10,13 @@ const corsHeaders = {
 const QDRANT_URL = Deno.env.get('QDRANT_URL')!;
 const QDRANT_API_KEY = Deno.env.get('QDRANT_API_KEY')!;
 const JOB_POSTINGS_COLLECTION = 'job_postings_cluster';
-const EMPLOYEES_COLLECTION = 'employees'; // Your employees collection name
+const EMPLOYEES_COLLECTION = 'employees';
 
 // Hugging Face API for embeddings
 const HF_API_KEY = Deno.env.get('HUGGING_FACE_ACCESS_TOKEN')!;
-const EMBEDDING_MODEL = 'sentence-transformers/all-MiniLM-L6-v2';
+const EMBEDDING_MODEL = 'BAAI/bge-small-en-v1.5';
 
-// Promotion model API endpoint (you'll need to deploy this)
+// Promotion model API endpoint
 const PROMOTION_MODEL_URL = Deno.env.get('PROMOTION_MODEL_URL') || '';
 
 serve(async (req) => {
@@ -118,10 +118,8 @@ serve(async (req) => {
 
     console.log('✅ Job posting uploaded to Qdrant');
 
-    // STEP: Query Qdrant for similar employees (cosine similarity)
+    // Query Qdrant for similar employees
     console.log('🔍 Querying Qdrant for similar employees...');
-    console.log('Qdrant URL:', QDRANT_URL);
-    console.log('Employees collection:', EMPLOYEES_COLLECTION);
     const similarEmployeesData = await querySimilarEmployees(embedding);
 
     console.log(`✅ Found ${similarEmployeesData.length} similar employees`);
@@ -129,7 +127,7 @@ serve(async (req) => {
       console.log('First match:', JSON.stringify(similarEmployeesData[0]));
     }
 
-    // STEP: Get promotion predictions for matched employees
+    // Get promotion predictions for matched employees
     let similarEmployees = similarEmployeesData;
     
     if (PROMOTION_MODEL_URL && similarEmployeesData.length > 0) {
@@ -138,14 +136,12 @@ serve(async (req) => {
         console.log('✅ Added promotion predictions');
       } catch (error) {
         console.error('⚠️ Promotion prediction failed, using similarity only:', error);
-        // Continue with just similarity scores
       }
     } else {
       console.log('⚠️ No promotion model URL configured, using mock predictions');
-      // Add mock promotion probabilities
       similarEmployees = similarEmployeesData.map(emp => ({
         ...emp,
-        promotion_probability: Math.random() * 0.4 + 0.6 // Random between 0.6-1.0 for demo
+        promotion_probability: Math.random() * 0.4 + 0.6
       }));
     }
 
@@ -209,11 +205,10 @@ function processDepartments(rawCategories: string): string[] {
 }
 
 async function getEmbedding(text: string): Promise<number[]> {
-  console.log('🔄 Calling HuggingFace embedding API...');
+  console.log('🔄 Calling HuggingFace Serverless Inference API...');
   
-  // Use the standard Inference API endpoint with feature-extraction task
   const response = await fetch(
-    `https://api-inference.huggingface.co/pipeline/feature-extraction/${EMBEDDING_MODEL}`,
+    `https://api-inference.huggingface.co/models/${EMBEDDING_MODEL}`,
     {
       method: 'POST',
       headers: {
@@ -238,32 +233,34 @@ async function getEmbedding(text: string): Promise<number[]> {
   const result = await response.json();
   console.log('✅ HuggingFace response type:', typeof result, 'isArray:', Array.isArray(result));
   
-  // Handle the response structure - typically [[token_embeddings]]
-  if (Array.isArray(result)) {
-    // If result is [[[embeddings]]] or [[embeddings]]
-    if (Array.isArray(result[0])) {
-      if (Array.isArray(result[0][0])) {
-        // Shape: [[[token_embs]]] - take first batch, mean pool tokens
-        const tokenEmbeddings = result[0];
-        return meanPool(tokenEmbeddings);
-      } else if (typeof result[0][0] === 'number') {
-        // Shape: [[embedding]] - take first embedding
-        console.log('✅ Embedding dimension:', result[0].length);
-        return result[0];
-      }
-    } else if (typeof result[0] === 'number') {
-      // Shape: [embedding] - direct embedding
-      console.log('✅ Embedding dimension:', result.length);
-      return result;
+  // Case 1: Array of arrays (batch format) [[0.1, 0.2, ...]]
+  if (Array.isArray(result) && Array.isArray(result[0])) {
+    if (Array.isArray(result[0][0])) {
+      // Token-level embeddings: need mean pooling
+      console.log('✅ Token embeddings detected, performing mean pooling...');
+      return meanPool(result[0]);
+    } else if (typeof result[0][0] === 'number') {
+      // Sentence-level embedding: take first
+      console.log('✅ Sentence embedding (batch format), dimension:', result[0].length);
+      return result[0];
     }
   }
   
-  console.error('Unexpected response structure:', JSON.stringify(result).slice(0, 200));
-  throw new Error('Unexpected embedding response format');
+  // Case 2: Direct 1D array [0.1, 0.2, ...]
+  if (Array.isArray(result) && typeof result[0] === 'number') {
+    console.log('✅ Direct embedding array, dimension:', result.length);
+    return result;
+  }
+  
+  console.error('Unexpected response structure:', JSON.stringify(result).slice(0, 300));
+  throw new Error(`Unexpected embedding response format. Type: ${typeof result}, IsArray: ${Array.isArray(result)}`);
 }
 
-// Helper function for mean pooling
 function meanPool(tokenEmbeddings: number[][]): number[] {
+  if (!tokenEmbeddings || tokenEmbeddings.length === 0) {
+    throw new Error('Empty token embeddings');
+  }
+  
   const embeddingDim = tokenEmbeddings[0].length;
   const meanEmbedding = new Array(embeddingDim).fill(0);
   
@@ -281,13 +278,12 @@ function meanPool(tokenEmbeddings: number[][]): number[] {
   return meanEmbedding;
 }
 
-// Query Qdrant employees collection for similar employees
 async function querySimilarEmployees(jobEmbedding: number[]): Promise<any[]> {
   const searchPayload = {
     vector: jobEmbedding,
-    limit: 5, // Top 5 similar employees
+    limit: 5,
     with_payload: true,
-    score_threshold: 0.5 // Minimum similarity threshold (adjust as needed)
+    score_threshold: 0.5
   };
 
   const response = await fetch(
@@ -309,7 +305,6 @@ async function querySimilarEmployees(jobEmbedding: number[]): Promise<any[]> {
 
   const result = await response.json();
   
-  // Transform Qdrant results to employee format
   const employees = result.result.map((item: any) => ({
     id: item.id,
     name: item.payload.name || 'Unknown',
@@ -317,7 +312,6 @@ async function querySimilarEmployees(jobEmbedding: number[]): Promise<any[]> {
     current_role: item.payload.current_role || item.payload.designation || 'Unknown',
     email: item.payload.email || `employee${item.id}@company.com`,
     similarity_score: item.score,
-    // Include data needed for promotion prediction
     previous_year_rating: item.payload.previous_year_rating || 0,
     length_of_service: item.payload.length_of_service || 0,
     awards_won: item.payload.awards_won || 0,
@@ -329,9 +323,7 @@ async function querySimilarEmployees(jobEmbedding: number[]): Promise<any[]> {
   return employees;
 }
 
-// Add promotion predictions using your ML model
 async function addPromotionPredictions(employees: any[]): Promise<any[]> {
-  // Prepare employee data for the promotion model
   const employeeFeatures = employees.map(emp => ({
     previous_year_rating: emp.previous_year_rating,
     length_of_service: emp.length_of_service,
@@ -342,7 +334,6 @@ async function addPromotionPredictions(employees: any[]): Promise<any[]> {
     department: emp.department
   }));
 
-  // Call your promotion prediction model API
   const response = await fetch(PROMOTION_MODEL_URL, {
     method: 'POST',
     headers: {
@@ -357,7 +348,6 @@ async function addPromotionPredictions(employees: any[]): Promise<any[]> {
 
   const predictions = await response.json();
 
-  // Merge predictions with employee data
   return employees.map((emp, index) => ({
     ...emp,
     promotion_probability: predictions[index]?.probability || 0.5,
