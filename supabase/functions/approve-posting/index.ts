@@ -13,7 +13,7 @@ const JOB_POSTINGS_COLLECTION = 'job_postings_cluster';
 const EMPLOYEES_COLLECTION = 'employees'; // Your employees collection name
 
 // Hugging Face API for embeddings
-const HF_API_KEY = Deno.env.get('HF_API_KEY')!;
+const HF_API_KEY = Deno.env.get('HUGGING_FACE_ACCESS_TOKEN')!;
 const EMBEDDING_MODEL = 'sentence-transformers/all-MiniLM-L6-v2';
 
 // Promotion model API endpoint (you'll need to deploy this)
@@ -60,9 +60,12 @@ serve(async (req) => {
 
     // Create embedding text for job posting
     const embeddingText = createEmbeddingText(parsedData, naturalPosting);
+    console.log('📝 Created embedding text, length:', embeddingText.length);
     
     // Get embedding from Hugging Face
+    console.log('🔄 Getting embedding from Hugging Face...');
     const embedding = await getEmbedding(embeddingText);
+    console.log('✅ Got embedding, dimensions:', embedding.length);
     
     // Process departments
     const departmentKeywords = processDepartments(parsedData.job_categories || '');
@@ -116,9 +119,15 @@ serve(async (req) => {
     console.log('✅ Job posting uploaded to Qdrant');
 
     // STEP: Query Qdrant for similar employees (cosine similarity)
+    console.log('🔍 Querying Qdrant for similar employees...');
+    console.log('Qdrant URL:', QDRANT_URL);
+    console.log('Employees collection:', EMPLOYEES_COLLECTION);
     const similarEmployeesData = await querySimilarEmployees(embedding);
 
     console.log(`✅ Found ${similarEmployeesData.length} similar employees`);
+    if (similarEmployeesData.length > 0) {
+      console.log('First match:', JSON.stringify(similarEmployeesData[0]));
+    }
 
     // STEP: Get promotion predictions for matched employees
     let similarEmployees = similarEmployeesData;
