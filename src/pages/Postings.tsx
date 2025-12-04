@@ -15,7 +15,14 @@ interface JobPosting {
   department: string;
   key_skills: string[];
   natural_posting: string;
-  created_at: string;
+  date_created: string;
+  structured_data?: {
+    company?: string;
+    job_type?: string;
+    work_setting?: string;
+    experience_needed?: string;
+    education_level?: string;
+  };
 }
 
 const Postings = () => {
@@ -89,14 +96,40 @@ const Postings = () => {
                   </Badge>
                 </CardHeader>
                 <CardContent className="space-y-3">
+                  {posting.structured_data?.company && (
+                    <div className="flex items-center text-sm text-muted-foreground">
+                      <Building2 className="mr-2 h-4 w-4" />
+                      <span className="font-medium">Company:</span> <span className="ml-2">{posting.structured_data.company}</span>
+                    </div>
+                  )}
                   <div className="flex items-center text-sm text-muted-foreground">
                     <MapPin className="mr-2 h-4 w-4" />
-                    {posting.location}
+                    <span className="font-medium">Location:</span> <span className="ml-2">{posting.location}</span>
                   </div>
                   <div className="flex items-center text-sm text-muted-foreground">
                     <Building2 className="mr-2 h-4 w-4" />
-                    {posting.department}
+                    <span className="font-medium">Department:</span> <span className="ml-2">{posting.department}</span>
                   </div>
+                  {posting.structured_data?.job_type && (
+                    <div className="flex items-center text-sm text-muted-foreground">
+                      <span className="font-medium">Job Type:</span> <span className="ml-2">{posting.structured_data.job_type}</span>
+                    </div>
+                  )}
+                  {posting.structured_data?.work_setting && (
+                    <div className="flex items-center text-sm text-muted-foreground">
+                      <span className="font-medium">Work Setting:</span> <span className="ml-2">{posting.structured_data.work_setting}</span>
+                    </div>
+                  )}
+                  {posting.structured_data?.experience_needed && (
+                    <div className="flex items-center text-sm text-muted-foreground">
+                      <span className="font-medium">Experience:</span> <span className="ml-2">{posting.structured_data.experience_needed}</span>
+                    </div>
+                  )}
+                  {posting.structured_data?.education_level && (
+                    <div className="flex items-center text-sm text-muted-foreground">
+                      <span className="font-medium">Education:</span> <span className="ml-2">{posting.structured_data.education_level}</span>
+                    </div>
+                  )}
 
                   {posting.key_skills && posting.key_skills.length > 0 && (
                     <div className="pt-2">

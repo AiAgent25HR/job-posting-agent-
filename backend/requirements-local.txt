@@ -1,0 +1,7 @@
+# Optional: Install these only if you want to use local embedding model
+# For CPU-only systems, HuggingFace API is recommended (faster, no model download)
+torch==2.1.0
+transformers==4.35.0
+sentencepiece==0.1.99
+numpy==1.24.3
+

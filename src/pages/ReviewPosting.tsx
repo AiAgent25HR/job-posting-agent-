@@ -1,4 +1,5 @@
 import { useState } from "react";
+import React from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,6 +26,36 @@ const ReviewPosting = () => {
   const [similarEmployees, setSimilarEmployees] = useState<Employee[]>([]);
 
   const { generatedPosting, originalInput } = location.state || {};
+
+  // Pre-process markdown to convert inline bullet points to proper markdown lists
+  const preprocessMarkdown = (text: string): string => {
+    let processed = text;
+
+    // Convert paragraphs with bullet points (•) to markdown lists
+    // Handle patterns like "• item1 • item2 • item3" within paragraphs
+    const lines = processed.split('\n');
+    const processedLines: string[] = [];
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+
+      // Check if line contains multiple bullet points
+      if (line.includes('•') && (line.match(/•/g) || []).length > 1) {
+        // Split by bullet character
+        const items = line.split('•').map(item => item.trim()).filter(item => item.length > 0);
+        if (items.length > 1) {
+          // Convert to markdown list - each item on its own line
+          processedLines.push(...items.map(item => `- ${item}`));
+        } else {
+          processedLines.push(line);
+        }
+      } else {
+        processedLines.push(line);
+      }
+    }
+
+    return processedLines.join('\n');
+  };
 
   if (!generatedPosting) {
     return (
@@ -94,6 +125,8 @@ const ReviewPosting = () => {
           <CardContent>
             <div className="prose prose-slate max-w-none dark:prose-invert">
               <ReactMarkdown
+                remarkPlugins={[]}
+                rehypePlugins={[]}
                 components={{
                   h1: ({ children }) => <h1 className="text-5xl font-extrabold mb-8 mt-10 text-foreground border-b-4 border-primary/30 pb-4 tracking-tight">{children}</h1>,
                   h2: ({ children }) => <h2 className="text-4xl font-bold mb-6 mt-10 text-foreground border-b-2 border-primary/20 pb-3">{children}</h2>,
@@ -101,10 +134,58 @@ const ReviewPosting = () => {
                   h4: ({ children }) => <h4 className="text-2xl font-semibold mb-4 mt-6 text-foreground">{children}</h4>,
                   h5: ({ children }) => <h5 className="text-xl font-semibold mb-3 mt-5 text-foreground">{children}</h5>,
                   h6: ({ children }) => <h6 className="text-lg font-semibold mb-2 mt-4 text-foreground">{children}</h6>,
-                  p: ({ children }) => <p className="mb-6 text-foreground leading-8 text-lg">{children}</p>,
-                  ul: ({ children }) => <ul className="list-disc ml-10 mb-8 space-y-4 text-foreground marker:text-primary text-lg block">{children}</ul>,
-                  ol: ({ children }) => <ol className="list-decimal ml-10 mb-8 space-y-4 text-foreground marker:text-primary text-lg block">{children}</ol>,
-                  li: ({ children }) => <li className="text-foreground leading-8 pl-3 block mb-4 whitespace-normal break-words">{children}</li>,
+                  p: ({ children }) => {
+                    // Convert children to string for processing
+                    let text = '';
+                    if (typeof children === 'string') {
+                      text = children;
+                    } else if (Array.isArray(children)) {
+                      text = children.map(child =>
+                        typeof child === 'string' ? child :
+                          (React.isValidElement(child) && 'props' in child && child.props && typeof child.props === 'object' && 'children' in child.props) ? String(child.props.children || '') :
+                            String(child)
+                      ).join('');
+                    } else {
+                      text = String(children);
+                    }
+
+                    // Pattern to match "Key: Value" pairs - improved regex
+                    // Match patterns like "Location: Cairo, Egypt" or "Job Type: Full Time"
+                    // Look for known keys and capture everything until the next key or end
+                    const knownKeys = ['Location', 'Job Type', 'Work Setting', 'Career Level', 'Education Required', 'Education', 'Experience Needed', 'Experience'];
+                    const keyPattern = knownKeys.join('|');
+                    const keyValuePattern = new RegExp(`\\b(${keyPattern}):\\s*([^:]+?)(?=\\s+\\b(${keyPattern}):|$)`, 'gi');
+                    const matches = [...text.matchAll(keyValuePattern)];
+
+                    // Check if this looks like a "Key Details" section with multiple key-value pairs
+                    if (matches.length > 1) {
+                      // Split into separate lines for each key-value pair
+                      return (
+                        <div className="mb-6 space-y-2">
+                          {matches.map((match, idx) => {
+                            const key = match[1];
+                            const value = match[2].trim();
+                            return (
+                              <div key={idx} className="text-foreground leading-8 text-lg">
+                                <span className="font-semibold">{key}:</span> <span>{value}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    }
+                    return <p className="mb-6 text-foreground leading-8 text-lg">{children}</p>;
+                  },
+                  ul: ({ children }) => <ul className="list-disc ml-10 mb-8 space-y-4 text-foreground marker:text-primary text-lg" style={{ display: 'block' }}>{children}</ul>,
+                  ol: ({ children }) => <ol className="list-decimal ml-10 mb-8 space-y-4 text-foreground marker:text-primary text-lg" style={{ display: 'block' }}>{children}</ol>,
+                  li: ({ children }) => (
+                    <li
+                      className="text-foreground leading-8 pl-3 mb-4 whitespace-normal break-words"
+                      style={{ display: 'list-item', listStylePosition: 'outside' }}
+                    >
+                      {children}
+                    </li>
+                  ),
                   strong: ({ children }) => <strong className="font-bold text-foreground text-xl">{children}</strong>,
                   em: ({ children }) => <em className="italic text-foreground">{children}</em>,
                   blockquote: ({ children }) => <blockquote className="border-l-4 border-primary/40 pl-6 my-8 italic text-foreground/90 text-lg bg-muted/50 py-4 rounded-r-lg">{children}</blockquote>,
@@ -113,7 +194,7 @@ const ReviewPosting = () => {
                   hr: () => <hr className="my-10 border-t-2 border-primary/20" />,
                 }}
               >
-                {generatedPosting.natural_posting}
+                {preprocessMarkdown(generatedPosting.natural_posting)}
               </ReactMarkdown>
             </div>
 
